@@ -337,6 +337,25 @@ def _pydantic_model_from_json_schema(name: str, schema: dict) -> type[BaseModel]
     return create_model(f"Schema_{name}", **fields)
 
 
+def _to_jsonable(value: Any) -> Any:
+    """Coerce tool arguments into JSON-serializable primitives.
+
+    Nested object params (e.g. the ``tag_conditions`` items on ``filter_*``) arrive
+    as LangChain-generated Pydantic instances, which the MCP client cannot serialize.
+    Redis key prefixes the LLM sometimes adds ("reddash_order:ORD_001" → "ORD_001")
+    are stripped here too, so nested values get the same treatment as top-level ones.
+    """
+    if isinstance(value, BaseModel):
+        return _to_jsonable(value.model_dump(exclude_none=True))
+    if isinstance(value, dict):
+        return {k: _to_jsonable(v) for k, v in value.items() if v is not None}
+    if isinstance(value, (list, tuple)):
+        return [_to_jsonable(v) for v in value if v is not None]
+    if isinstance(value, str) and (m := _REDIS_KEY_PREFIX_RE.search(value)):
+        return m.group(1)
+    return value
+
+
 def _make_mcp_tool(
     tool_def: dict[str, Any],
     cs_service: ContextSurfaceService,
@@ -348,12 +367,9 @@ def _make_mcp_tool(
     args_model = _pydantic_model_from_json_schema(name, input_schema)
 
     async def fn(**kwargs: Any) -> str:
-        # Strip None values — MCP server rejects null for optional numeric params
-        clean_args = {k: v for k, v in kwargs.items() if v is not None}
-        # Strip Redis key prefixes the LLM sometimes adds (e.g. "reddash_order:ORD_001" → "ORD_001")
-        for k, v in clean_args.items():
-            if isinstance(v, str) and (m := _REDIS_KEY_PREFIX_RE.search(v)):
-                clean_args[k] = m.group(1)
+        # Drop None values (the MCP server rejects null for optional numeric params),
+        # unwrap nested arg models, and strip Redis key prefixes at any depth.
+        clean_args = {k: _to_jsonable(v) for k, v in kwargs.items() if v is not None}
         try:
             result = await cs_service.call_tool(name, clean_args)
             return json.dumps(result or {}, default=str)
