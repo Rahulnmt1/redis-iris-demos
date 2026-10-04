@@ -4,13 +4,15 @@
 #   Vault: ${DEMO_SECRETS_DIR:-$HOME/Documents/RWork/secrets}/redis-iris-demos-radish-bank-keychain
 #   (private repo github.com/Rahulnmt1/secrets)
 set -euo pipefail
-VAULT="${DEMO_SECRETS_DIR:-$HOME/Documents/RWork/secrets}/redis-iris-demos-radish-bank-keychain"
+ROOT="${DEMO_SECRETS_DIR:-$HOME/Documents/RWork/secrets}"
+VAULT="$ROOT/redis-iris-demos-radish-bank-keychain"
 cd "$(dirname "$0")"
 FILES=(
   ".env"
 )
-for f in "${FILES[@]}"; do
-  src="$VAULT/$f"
+for entry in "${FILES[@]}"; do
+  f="${entry%%=*}"
+  if [ "$f" != "$entry" ]; then src="$ROOT/${entry#*=}"; else src="$VAULT/$f"; fi
   if [ ! -e "$src" ]; then echo "missing in vault: $f" >&2; continue; fi
   if [ -e "$f" ] && [ ! -L "$f" ] && [ ! "$f" -ef "$src" ]; then echo "skipped (real file present): $f" >&2; continue; fi
   mkdir -p "$(dirname "$f")"
