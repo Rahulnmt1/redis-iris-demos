@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Links this project's confidential files (.env, credentials, keys) from the owner's
 # private secrets vault. Nothing secret is stored in this repository.
-#   Vault: ${DEMO_SECRETS_DIR:-$HOME/Documents/RWork/secrets}/redis-iris-demos
+#   Vault: ${DEMO_SECRETS_DIR:-$HOME/Documents/RWork/secrets}/redis-iris-demos-radish-bank-keychain
 #   (private repo github.com/Rahulnmt1/secrets)
 set -euo pipefail
-VAULT="${DEMO_SECRETS_DIR:-$HOME/Documents/RWork/secrets}/redis-iris-demos"
+VAULT="${DEMO_SECRETS_DIR:-$HOME/Documents/RWork/secrets}/redis-iris-demos-radish-bank-keychain"
 cd "$(dirname "$0")"
 FILES=(
   ".env"
