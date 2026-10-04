@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -26,7 +28,53 @@ from backend.app.core.domain_loader import load_domain
 from backend.app.settings import ENV_PATH, get_settings
 
 
+SECRETS_SCRIPT = ROOT / "bin" / "secrets.sh"
+KEYCHAIN_KEYS = {"MCP_AGENT_KEY", "CTX_SURFACE_ID"}
+
+
+def store_secret_in_keychain(key: str, value: str) -> bool:
+    """Persist a secret into macOS Keychain via bin/secrets.sh.
+
+    Returns True on success. Falls back to False if the helper is unavailable
+    (e.g. running on Linux) so the caller can decide what to do.
+    """
+    if not SECRETS_SCRIPT.exists() or sys.platform != "darwin":
+        return False
+    try:
+        result = subprocess.run(
+            [str(SECRETS_SCRIPT), "set", key],
+            input=value,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        if result.stderr:
+            print(result.stderr.strip())
+        return True
+    except subprocess.CalledProcessError as exc:
+        print(f"Keychain store failed for {key}: {exc.stderr or exc}")
+        return False
+
+
 def upsert_env_values(path: Path, updates: dict[str, str]) -> None:
+    """Write key/value updates back to the .env file.
+
+    Sensitive keys (``KEYCHAIN_KEYS``) are diverted into macOS Keychain when
+    possible so they never touch disk. The .env file is left with placeholder
+    blanks for those keys so pydantic-settings still picks up the values from
+    the OS environment when the loader script exports them.
+    """
+    keychain_updates = {k: v for k, v in updates.items() if k in KEYCHAIN_KEYS}
+    disk_updates = {k: v for k, v in updates.items() if k not in KEYCHAIN_KEYS}
+
+    for key, value in keychain_updates.items():
+        stored = store_secret_in_keychain(key, value)
+        if stored:
+            os.environ[key] = value
+            disk_updates[key] = ""
+        else:
+            disk_updates[key] = value
+
     lines = path.read_text().splitlines() if path.exists() else []
     seen: set[str] = set()
     output: list[str] = []
@@ -35,12 +83,12 @@ def upsert_env_values(path: Path, updates: dict[str, str]) -> None:
             output.append(line)
             continue
         key, _ = line.split("=", 1)
-        if key in updates:
-            output.append(f"{key}={updates[key]}")
+        if key in disk_updates:
+            output.append(f"{key}={disk_updates[key]}")
             seen.add(key)
         else:
             output.append(line)
-    for key, value in updates.items():
+    for key, value in disk_updates.items():
         if key not in seen:
             output.append(f"{key}={value}")
     path.write_text("\n".join(output) + "\n")
@@ -218,7 +266,10 @@ def main() -> None:
     print("Context surface ready.")
     print(f"  Surface ID:        {surface_id}")
     print("  Redis source:      embedded connection_config")
-    print("  Agent key saved to .env as MCP_AGENT_KEY")
+    if SECRETS_SCRIPT.exists() and sys.platform == "darwin":
+        print("  Agent key saved in macOS Keychain (CTX_SURFACE_ID + MCP_AGENT_KEY)")
+    else:
+        print("  Agent key saved to .env as MCP_AGENT_KEY")
 
 
 if __name__ == "__main__":

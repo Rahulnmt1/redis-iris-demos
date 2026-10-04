@@ -1,5 +1,9 @@
 # Environment & secrets
 .env
+.env.local
+.env.*.local
+*.secrets
+*.secret
 env.cloud-run.yaml
 
 # AI assistant config (local only)
