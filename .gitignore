@@ -55,9 +55,8 @@ psportal-setup/
 
 # secrets
 .env
-.env.*
+.env*
 *.env
-.envrc
 .dev.vars
 .dev.vars.*
 !.env.example
